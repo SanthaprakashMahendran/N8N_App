@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: n8n-pdb
+  namespace: n8n
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      n8n-instance: "true"   # covers both n8n-main and n8n-worker pods

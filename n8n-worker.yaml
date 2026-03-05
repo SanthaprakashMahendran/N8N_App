@@ -1,0 +1,75 @@
+# n8n worker: runs the Bull queue consumer. Requires in n8n-env secret:
+#   QUEUE_BULL_REDIS_HOST, QUEUE_BULL_REDIS_PORT (and QUEUE_BULL_REDIS_PASSWORD if needed)
+# so workers use the same Redis as main for the execution queue (not just cache).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n-worker
+  namespace: n8n
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Avoid creating an extra pod during rollout (prevents "Insufficient memory" on small clusters)
+      maxSurge: 0
+      maxUnavailable: 1
+
+  selector:
+    matchLabels:
+      app: n8n
+      component: worker
+
+  template:
+    metadata:
+      labels:
+        app: n8n
+        component: worker
+        n8n-instance: "true"
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1000
+
+      containers:
+        - name: n8n
+          image: n8nio/n8n:1.63.4
+          # Run as queue worker so this pod consumes jobs from Redis (Bull queue).
+          # Without this, the container runs the default web process and never picks jobs.
+          args: ["worker"]
+
+          envFrom:
+            - secretRef:
+                name: n8n-env
+
+          env:
+            - name: EXECUTIONS_MODE
+              value: "queue"
+            - name: N8N_DISABLE_PRODUCTION_MAIN_PROCESS
+              value: "true"
+            # Expose /healthz and /healthz/readiness so K8s probes work (disabled by default on workers)
+            - name: QUEUE_HEALTH_CHECK_ACTIVE
+              value: "true"
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5678
+            periodSeconds: 15
+            failureThreshold: 5
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5678
+            periodSeconds: 10
+            failureThreshold: 3
+

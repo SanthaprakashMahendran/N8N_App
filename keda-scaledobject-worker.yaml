@@ -1,0 +1,25 @@
+# Scale n8n workers by Redis queue depth (Bull "wait" list length).
+# Requires KEDA installed: https://keda.sh/docs/latest/deploy/
+# Use this INSTEAD of hpa.yaml for n8n-worker (do not use both).
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: n8n-worker
+  namespace: n8n
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: n8n-worker
+  minReplicaCount: 2
+  maxReplicaCount: 5
+  triggers:
+    - type: redis
+      metadata:
+        address: master.redis-que.nr1pf5.use1.cache.amazonaws.com:6379
+        listName: bull:jobs:wait
+        listLength: "5"
+        activationListLength: "1"
+        enableTLS: "true"
+        unsafeSsl: "true"
