@@ -12,7 +12,7 @@ resources:
 images:
   - name: n8nio/n8n
     newName: 392746353565.dkr.ecr.us-east-1.amazonaws.com/n8n-images
-    newTag: "9"
+    newTag: "fcc_14"
   # Or your ECR: newName: 392746353565.dkr.ecr.us-east-1.amazonaws.com/n8n-images
 
 replicas:
