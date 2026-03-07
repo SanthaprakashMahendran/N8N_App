@@ -19,11 +19,4 @@ replicas:
   - name: n8n-main
     count: 2
 
-# n8n-env secret per overlay (copy n8n-env.env.example → n8n-env.env, do not commit n8n-env.env)
-secretGenerator:
-  - name: n8n-env
-    envs:
-      - n8n-env.env
-    type: Opaque
-    options:
-      disableNameSuffixHash: true
+

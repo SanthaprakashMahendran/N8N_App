@@ -19,11 +19,3 @@ replicas:
     count: 3
   # Or your ECR: newName: 392746353565.dkr.ecr.us-east-1.amazonaws.com/n8n-images
 
-# n8n-env secret per overlay (copy n8n-env.env.example → n8n-env.env, do not commit n8n-env.env)
-secretGenerator:
-  - name: n8n-env
-    envs:
-      - n8n-env.env
-    type: Opaque
-    options:
-      disableNameSuffixHash: true
