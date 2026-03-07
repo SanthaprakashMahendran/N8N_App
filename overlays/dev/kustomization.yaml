@@ -1,0 +1,29 @@
+# n8n – dev overlay (namespace: n8n-dev, replace image with dev tag)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: n8n-dev
+
+resources:
+  - namespace.yaml
+  - ../../base
+
+# Replace n8n image for dev (same image in main + worker)
+images:
+  - name: n8nio/n8n
+    newName: 392746353565.dkr.ecr.us-east-1.amazonaws.com/n8n-images
+    newTag: "9"
+  # Or your ECR: newName: 392746353565.dkr.ecr.us-east-1.amazonaws.com/n8n-images
+
+replicas:
+  - name: n8n-main
+    count: 2
+
+# n8n-env secret per overlay (copy n8n-env.env.example → n8n-env.env, do not commit n8n-env.env)
+secretGenerator:
+  - name: n8n-env
+    envs:
+      - n8n-env.env
+    type: Opaque
+    options:
+      disableNameSuffixHash: true

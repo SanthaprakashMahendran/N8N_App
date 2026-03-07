@@ -1,0 +1,5 @@
+# Do not commit secret files with real credentials
+n8n-env-secret.yaml
+base/n8n-env.env
+overlays/dev/n8n-env.env
+overlays/prod/n8n-env.env

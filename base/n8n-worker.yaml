@@ -45,8 +45,7 @@ spec:
           env:
             - name: EXECUTIONS_MODE
               value: "queue"
-            - name: N8N_DISABLE_PRODUCTION_MAIN_PROCESS
-              value: "true"
+            
             # Expose /healthz and /healthz/readiness so K8s probes work (disabled by default on workers)
             - name: QUEUE_HEALTH_CHECK_ACTIVE
               value: "true"
