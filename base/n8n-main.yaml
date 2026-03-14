@@ -42,11 +42,11 @@ spec:
 
             # Prefer setting N8N_HOST/WEBHOOK_URL via n8n-env secret; ALB hostname can change on recreate
             - name: N8N_HOST
-              value: "k8s-n8n-n8ningre-3d5006e992-1533802164.us-east-1.elb.amazonaws.com"
+              value: "k8s-n8ndev-n8ningre-9455853341-1415401177.us-east-1.elb.amazonaws.com"
             - name: N8N_PROTOCOL
               value: "http"
             - name: WEBHOOK_URL
-              value: "http://k8s-n8n-n8ningre-3d5006e992-1533802164.us-east-1.elb.amazonaws.com/"
+              value: "http://k8s-n8ndev-n8ningre-9455853341-1415401177.us-east-1.elb.amazonaws.com/"
 
           volumeMounts:
             - name: n8n-data

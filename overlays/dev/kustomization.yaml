@@ -17,6 +17,6 @@ images:
 
 replicas:
   - name: n8n-main
-    count: 2
+    count: 1
 
 

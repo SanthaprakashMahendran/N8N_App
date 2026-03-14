@@ -1,0 +1,14 @@
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: postgres-external
+  namespace: n8n-dev
+spec:
+  hosts:
+  - n8n-postgres.c4n0m4skmzkn.us-east-1.rds.amazonaws.com
+  location: MESH_EXTERNAL
+  ports:
+  - number: 5432
+    name: tcp-postgres
+    protocol: TCP
+  resolution: DNS

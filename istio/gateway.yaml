@@ -1,0 +1,15 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+ name: n8n-gateway
+ namespace: n8n-dev
+spec:
+ selector:
+   istio: ingressgateway
+ servers:
+ - port:
+     number: 80
+     name: http
+     protocol: HTTP
+   hosts:
+   - "n8n.drtest.org"

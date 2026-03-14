@@ -1,0 +1,16 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+ name: n8n
+ namespace: n8n-dev
+spec:
+ hosts:
+ - "n8n.drtest.org"
+ gateways:
+ - n8n-gateway
+ http:
+ - route:
+   - destination:
+       host: n8n-main
+       port:
+         number: 80

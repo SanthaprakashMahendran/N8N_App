@@ -1,0 +1,14 @@
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: redis-external
+  namespace: n8n-dev
+spec:
+  hosts:
+  - master.n8n-redis.nr1pf5.use1.cache.amazonaws.com
+  location: MESH_EXTERNAL
+  ports:
+  - number: 6379
+    name: tcp-redis
+    protocol: TCP
+  resolution: DNS

@@ -1,6 +1,6 @@
 # n8n on Kubernetes (queue mode with Redis/Valkey)
 
-Kubernetes manifests to run **n8n** in **queue mode**: one main instance (UI + API + enqueue) and multiple workers that consume workflow executions from a **Redis/Valkey** queue. Optional **KEDA** scales workers by queue depth; optional **Cluster Autoscaler** scales nodes.
+Kubernetes manifests to run **n8n** in **queue mode**: one main instance (UI + API + enqueue) and multiple workers that consume workflow executions from a **Redis/Valkey** queue. Uses **Kustomize** (base + dev/prod overlays), **Argo CD** for GitOps, and optional **KEDA** / **Cluster Autoscaler**.
 
 ---
 
@@ -8,61 +8,131 @@ Kubernetes manifests to run **n8n** in **queue mode**: one main instance (UI + A
 
 - **Queue mode**: Workflow runs are offloaded to workers via Redis (Bull), so the main instance stays responsive and you can scale workers independently.
 - **Redis/Valkey**: Single shared queue and cache; main and workers use the same Redis (e.g. AWS ElastiCache for Valkey).
+- **Kustomize**: One base, overlays for `n8n-dev` and `n8n-prod` (namespace, image, replicas).
+- **Argo CD**: GitOps—push to Git, Argo CD syncs and deploys to dev/prod.
 - **Kubernetes**: Rolling updates, health checks, PDB, and (with KEDA + Cluster Autoscaler) automatic scaling of both pods and nodes.
 
 ---
 
-## What's in this repo
+## Repo layout
 
-| File | Purpose |
+| Path | Purpose |
 |------|--------|
-| **n8n-main.yaml** | StatefulSet: 1 replica, web UI + API, enqueues jobs to Redis, 10Gi PVC (gp3). |
-| **n8n-worker.yaml** | Deployment: runs `n8n worker`, consumes from Redis Bull queue, 2 replicas min. |
-| **service.yaml** | Headless Service for n8n-main (StatefulSet). |
-| **ingress.yaml** | ALB Ingress (AWS) to n8n-main:80. |
-| **pdb.yaml** | PodDisruptionBudget: min 1 available across main + workers. |
-| **storageclass-gp3.yaml** | StorageClass for main PVC (EBS gp3). |
-| **keda-scaledobject-worker.yaml** | KEDA ScaledObject: scale workers by Redis list `bull:jobs:wait` (use OR HPA, not both). |
-| **hpa.yaml** | CPU-based HPA for workers (alternative to KEDA; do not use both). |
-| **cluster-autoscaler-autodiscover.yaml** | Cluster Autoscaler (EKS): scale node groups by pending/underutilized pods. |
+| **base/** | Shared manifests: n8n-main (StatefulSet), n8n-worker (Deployment), service, ingress, pdb, hpa. |
+| **overlays/dev/** | Namespace `n8n-dev`, image override, replicas (e.g. main=2). |
+| **overlays/prod/** | Namespace `n8n-prod`, image override, replicas (e.g. worker=3). |
+| **overlays/*/n8n-env.env.example** | Template for env vars (DB, Redis, N8N_*). Copy to `n8n-env.env` (gitignored) for local `kubectl apply -k`. |
+| **argocd/** | Argo CD operator/instance and Application manifests (if used). |
+| **Jenkinsfile** | Build app image, push to ECR, update overlay `newTag` to `fcc_<BUILD_NUMBER>`, commit and push. |
 
-**Required secret:** `n8n-env` in namespace `n8n` with DB_*, N8N_ENCRYPTION_KEY, QUEUE_BULL_REDIS_HOST, QUEUE_BULL_REDIS_PORT (and QUEUE_BULL_REDIS_PASSWORD if Redis uses auth).
-
- kubectl create secret generic n8n-env \
-  -n n8n \
-  --from-literal=DB_TYPE=postgresdb \
-  --from-literal=DB_POSTGRESDB_HOST=n8n-postgres.c4n0m4skmzkn.us-east-1.rds.amazonaws.com \
-  --from-literal=DB_POSTGRESDB_PORT=5432 \
-  --from-literal=DB_POSTGRESDB_DATABASE=n8n \
-  --from-literal=DB_POSTGRESDB_USER=root \
-  --from-literal=DB_POSTGRESDB_PASSWORD=SuperStrongPassword123! \
-  --from-literal=DB_POSTGRESDB_SSL=true \
-  --from-literal=DB_POSTGRESDB_SSL_MODE=require \
-  --from-literal=DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=false \
-  --from-literal=N8N_ENCRYPTION_KEY=super-secret-encryption-key \
-  --from-literal=N8N_HOST=0.0.0.0 \
-  --from-literal=N8N_PORT=5678 \
-  --from-literal=N8N_PROTOCOL=http \
-  --from-literal=N8N_SECURE_COOKIE=false \
-  --from-literal=EXECUTIONS_MODE=queue \
-  --from-literal=QUEUE_BULL_REDIS_HOST=master.redis-que.nr1pf5.use1.cache.amazonaws.com \
-  --from-literal=QUEUE_BULL_REDIS_PORT=6379 \
-  --from-literal=QUEUE_BULL_REDIS_TLS=true \
-  --from-literal=QUEUE_BULL_REDIS_TLS_REJECT_UNAUTHORIZED=false
+**Required secret (per namespace):** `n8n-env` with DB_*, N8N_ENCRYPTION_KEY, QUEUE_BULL_REDIS_*. Not stored in Git; create once per namespace (see below).
 
 ---
 
-## Quick apply (core)
+## Kustomize
+
+- **Base:** `base/kustomization.yaml` lists all shared resources (n8n-main, n8n-worker, service, ingress, pdb, hpa).
+- **Overlays:** `overlays/dev` and `overlays/prod` set `namespace`, `images` (ECR + tag), and `replicas`. No `secretGenerator` in Git so Argo CD can build without the env file.
+
+**Local apply (when you have `n8n-env.env`):**
+
+```bash
+# Create secret once per namespace (see "Secret: one-time per namespace" below)
+kubectl create secret generic n8n-env -n n8n-dev --from-env-file=overlays/dev/n8n-env.env
+kubectl create secret generic n8n-env -n n8n-prod --from-env-file=overlays/prod/n8n-env.env
+
+kubectl apply -k overlays/dev
+kubectl apply -k overlays/prod
+```
+
+---
+
+## Argo CD installation and setup
+
+### 1. Install Argo CD
+
+```bash
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+```
+
+### 2. Get admin password and login
+
+```bash
+# Initial admin password
+kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d
+
+# Login (use your LoadBalancer host and the password from above)
+argocd login <ARGOCD_SERVER_HOST> --username admin --password <PASSWORD> --insecure
+# Example:
+# argocd login a39fc89f4f6284163bec4ce8a4292d41-1519723699.us-east-1.elb.amazonaws.com \
+#   --username admin --password <PASSWORD> --insecure
+```
+
+Check version: `argocd version`
+
+### 3. Add Git repo (SSH)
+
+```bash
+argocd repo add git@github.com:SanthaprakashMahendran/N8n_App.git --ssh-private-key-path ~/.ssh/id_rsa
+```
+
+### 4. Create secret first (one-time per namespace)
+
+**The `n8n-env` secret must exist in each target namespace before (or right after) the first Argo CD sync.** It is not in Git, so create it once per environment:
+
+```bash
+# Dev
+kubectl create secret generic n8n-env -n n8n-dev --from-env-file=overlays/dev/n8n-env.env
+# Prod
+kubectl create secret generic n8n-env -n n8n-prod --from-env-file=overlays/prod/n8n-env.env
+```
+
+Use `overlays/*/n8n-env.env.example` as a template; copy to `n8n-env.env`, fill in values, then run the above. **You only need to create this secret once per namespace** unless you rotate DB/Redis credentials or add new keys.
+
+### 5. Create Applications in Argo CD
+
+Create Applications (UI or CLI) that point at this repo:
+
+- **n8n-dev:** source repo `SanthaprakashMahendran/N8n_App.git`, path `overlays/dev`, destination namespace `n8n-dev`.
+- **n8n-prod:** source repo same, path `overlays/prod`, destination namespace `n8n-prod`.
+
+After sync, Argo CD will deploy n8n to `n8n-dev` and `n8n-prod`. List apps: `kubectl get applications -n argocd`.
+
+---
+
+## Secret: one-time per namespace
+
+**Yes. The `n8n-env` secret needs to be created only once per namespace** (e.g. once in `n8n-dev`, once in `n8n-prod`). Argo CD does not manage it (it is not in Git). After creation, it stays until you delete it or replace it. Re-run the `kubectl create secret generic n8n-env ...` only if you change DB/Redis credentials or need to add/update env vars.
+
+---
+
+## Quick apply (without Argo CD)
 
 ```bash
 kubectl create namespace n8n
-# Create n8n-env secret with DB + Redis + N8N_ENCRYPTION_KEY
-kubectl apply -f storageclass-gp3.yaml
-kubectl apply -f service.yaml -f n8n-main.yaml -f n8n-worker.yaml -n n8n
-kubectl apply -f ingress.yaml -f pdb.yaml -n n8n
+# Create n8n-env secret (see above)
+kubectl apply -f base/service.yaml -f base/n8n-main.yaml -f base/n8n-worker.yaml -n n8n
+kubectl apply -f base/ingress.yaml -f base/pdb.yaml -n n8n
 ```
 
-Use either KEDA or HPA for worker scaling, not both.
+Or use overlays: `kubectl apply -k overlays/dev` (after creating the secret in that namespace). Use either KEDA or HPA for worker scaling, not both.
+
+---
+
+## What's in base/
+
+| File | Purpose |
+|------|--------|
+| **n8n-main.yaml** | StatefulSet: web UI + API, enqueues jobs to Redis, 10Gi PVC (gp3). |
+| **n8n-worker.yaml** | Deployment: runs `n8n worker`, consumes from Redis Bull queue. |
+| **service.yaml** | Headless Service for n8n-main. |
+| **ingress.yaml** | ALB Ingress (AWS) to n8n-main:80. |
+| **pdb.yaml** | PodDisruptionBudget: min 1 available across main + workers. |
+| **hpa.yaml** | CPU-based HPA for workers (alternative to KEDA; do not use both). |
+
+Optional (see below): **keda-scaledobject-worker.yaml**, **cluster-autoscaler-autodiscover.yaml**, **storageclass-gp3.yaml**.
 
 ---
 
